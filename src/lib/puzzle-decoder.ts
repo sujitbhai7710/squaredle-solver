@@ -46,6 +46,29 @@ export function decodeWordList(encoded: string): string[] {
 }
 
 /**
+ * Decode word list in browser/client environment (no Buffer)
+ */
+export function decodeWordListClient(encoded: string): string[] {
+  if (!encoded || typeof encoded !== 'string') {
+    return [];
+  }
+
+  try {
+    // Step 1: ROT-12 decode
+    const rot12Decoded = rot12Decode(encoded.trim());
+    
+    // Step 2: Base64 decode using atob
+    const base64Decoded = atob(rot12Decoded);
+    
+    // Step 3: Split by comma and filter
+    return base64Decoded.split(',').filter(w => w.length > 0);
+  } catch (error) {
+    console.error('Failed to decode word list:', error);
+    return [];
+  }
+}
+
+/**
  * Parse puzzle config and extract word lists
  */
 export function parsePuzzleConfig(configText: string): {
@@ -65,21 +88,28 @@ export function parsePuzzleConfig(configText: string): {
   let expressPuzzle: { board: string[][]; words: string[]; bonusWords: string[] } | null = null;
   let dateStr = new Date().toISOString().split('T')[0];
 
-  // Get today's date
+  // Get today's date - format: gTodayDateStr = '2026/03/18';
   const todayMatch = configText.match(/gTodayDateStr\s*=\s*['"]([^'"]+)['"]/);
   if (todayMatch) {
     dateStr = todayMatch[1].replace(/\//g, '-');
   }
 
-  // Helper to parse a puzzle
-  const parsePuzzleData = (dateKey: string, isExpress: boolean) => {
-    // Pattern to match the puzzle block
-    const pattern = new RegExp(`"${dateKey.replace(/\//g, '\\\\/')}"[\\s\\S]{0,50}?\\{([\\s\\S]{0,5000}?)\\n\\s{8}\\}`, 'g');
-    const match = pattern.exec(configText);
+  // Helper to parse a puzzle block
+  const parsePuzzleData = (dateKey: string): { board: string[][]; words: string[]; bonusWords: string[] } | null => {
+    // The date key in the config has escaped slashes: "2026\/03\/18"
+    const escapedDateKey = dateKey.replace(/\//g, '\\/');
     
-    if (!match) return null;
+    // Find the start of this puzzle block
+    const blockStart = configText.indexOf(`"${escapedDateKey}"`);
+    if (blockStart === -1) {
+      console.log(`Puzzle block not found for key: ${dateKey}`);
+      return null;
+    }
     
-    const block = match[0];
+    // Find the end of this puzzle block (next date key or end of file)
+    const nextBlockIdx = configText.indexOf('"20', blockStart + 10);
+    const blockEnd = nextBlockIdx > 0 ? nextBlockIdx : configText.length;
+    const block = configText.substring(blockStart, blockEnd);
     
     // Extract board
     const boardMatch = block.match(/"board":\s*\[([^\]]+)\]/);
@@ -99,17 +129,19 @@ export function parsePuzzleConfig(configText: string): {
     const optScoresMatch = block.match(/"optionalWordScores":\s*"([^"]+)"/);
     const bonusWords = optScoresMatch ? decodeWordList(optScoresMatch[1]) : [];
     
+    console.log(`Parsed puzzle for ${dateKey}: board=${board.length}x${board[0]?.length || 0}, words=${words.length}, bonus=${bonusWords.length}`);
+    
     return { board, words, bonusWords };
   };
 
   // Parse main puzzle (no -xp suffix)
-  const mainData = parsePuzzleData(dateStr.replace(/-/g, '/'), false);
+  const mainData = parsePuzzleData(dateStr.replace(/-/g, '/'));
   if (mainData) {
     mainPuzzle = mainData;
   }
 
   // Parse express puzzle (has -xp suffix)
-  const expressData = parsePuzzleData(dateStr.replace(/-/g, '/') + '-xp', true);
+  const expressData = parsePuzzleData(dateStr.replace(/-/g, '/') + '-xp');
   if (expressData) {
     expressPuzzle = expressData;
   }
