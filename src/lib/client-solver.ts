@@ -60,16 +60,63 @@ function calculateWordScore(word: string): number {
 }
 
 /**
- * Load dictionary from words file
+ * Decompress gzipped data using DecompressionStream API (modern browsers)
+ */
+async function decompressGzip(response: Response): Promise<string> {
+  // Check if DecompressionStream is available (Chrome 80+, Firefox 113+, Safari 16.4+)
+  if (typeof DecompressionStream !== 'undefined') {
+    const ds = new DecompressionStream('gzip');
+    const decompressedStream = response.body!.pipeThrough(ds);
+    const reader = decompressedStream.getReader();
+    const chunks: Uint8Array[] = [];
+    
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    
+    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const combined = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      combined.set(chunk, offset);
+      offset += chunk.length;
+    }
+    
+    return new TextDecoder().decode(combined);
+  }
+  
+  // Fallback: fetch uncompressed file
+  const fallbackResponse = await fetch('/words_alpha.txt');
+  return fallbackResponse.text();
+}
+
+/**
+ * Load dictionary from compressed words file (gzipped for faster loading)
  */
 export async function loadDictionary(onProgress?: (progress: number) => void): Promise<number> {
   if (wordSet) return wordSet.size;
 
   try {
-    const response = await fetch('/words_alpha.txt');
-    if (!response.ok) throw new Error('Failed to load dictionary');
+    // Try loading gzipped version first (1.05 MB vs 4.1 MB)
+    let text: string;
+    try {
+      const response = await fetch('/words_alpha.txt.gz');
+      if (response.ok) {
+        text = await decompressGzip(response);
+        console.log('Loaded compressed dictionary');
+      } else {
+        throw new Error('Compressed file not found');
+      }
+    } catch {
+      // Fallback to uncompressed
+      console.log('Loading uncompressed dictionary...');
+      const response = await fetch('/words_alpha.txt');
+      if (!response.ok) throw new Error('Failed to load dictionary');
+      text = await response.text();
+    }
 
-    const text = await response.text();
     const words = text.split('\n').map(w => w.trim().toLowerCase()).filter(w => w.length >= 2 && /^[a-z]+$/.test(w));
 
     wordSet = new Set(words);
