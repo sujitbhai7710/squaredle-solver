@@ -1,7 +1,7 @@
 /**
  * Client-Side Squaredle Solver
  * Uses entropy-based scoring to rank words by rarity
- * Higher score = rarer/more valuable word
+ * Can filter to only official puzzle words when provided
  */
 
 // Letter frequency in English (lower = more common, higher = rarer)
@@ -28,6 +28,7 @@ export interface FoundWord {
   length: number;
   score: number;
   path: Array<{ row: number; col: number }>;
+  isBonus?: boolean;
 }
 
 export interface SolverResult {
@@ -37,23 +38,24 @@ export interface SolverResult {
   executionTime: number;
 }
 
+export interface OfficialPuzzle {
+  grid: string[][];
+  words: string[];
+  bonusWords: string[];
+  date: string;
+  puzzleType: string;
+}
+
 /**
  * Calculate entropy-based score for a word
- * Higher score = rarer word (less common letters + longer = higher score)
  */
 function calculateWordScore(word: string): number {
   let score = 0;
   const wordLower = word.toLowerCase();
-  
-  // Sum of letter rarity scores
   for (const char of wordLower) {
     score += LETTER_FREQUENCY[char] || 15;
   }
-  
-  // Bonus for longer words (exponential)
   const lengthBonus = Math.pow(word.length, 1.5);
-  
-  // Multiply by length bonus for final score
   return Math.round(score * lengthBonus);
 }
 
@@ -61,41 +63,27 @@ function calculateWordScore(word: string): number {
  * Load dictionary from words file
  */
 export async function loadDictionary(onProgress?: (progress: number) => void): Promise<number> {
-  if (wordSet) {
-    return wordSet.size;
-  }
+  if (wordSet) return wordSet.size;
 
   try {
-    // Try to load from public folder
     const response = await fetch('/words_alpha.txt');
-    
-    if (!response.ok) {
-      throw new Error('Failed to load dictionary');
-    }
+    if (!response.ok) throw new Error('Failed to load dictionary');
 
     const text = await response.text();
-    const words = text
-      .split('\n')
-      .map(w => w.trim().toLowerCase())
-      .filter(w => w.length >= 2 && /^[a-z]+$/.test(w));
+    const words = text.split('\n').map(w => w.trim().toLowerCase()).filter(w => w.length >= 2 && /^[a-z]+$/.test(w));
 
     wordSet = new Set(words);
     prefixSet = new Set();
     wordScores = new Map();
 
-    // Build prefix set and calculate scores
     let processed = 0;
     const total = words.length;
 
     for (const word of words) {
-      // Add all prefixes
       for (let i = 1; i < word.length; i++) {
         prefixSet.add(word.substring(0, i));
       }
-      
-      // Calculate and store word score
       wordScores.set(word, calculateWordScore(word));
-      
       processed++;
       if (onProgress && processed % 50000 === 0) {
         onProgress(Math.round((processed / total) * 100));
@@ -125,10 +113,16 @@ export function getDictionarySize(): number {
 
 /**
  * Solve a Squaredle puzzle
+ * @param grid - The letter grid
+ * @param minWordLength - Minimum word length (default 2)
+ * @param officialWords - Optional set of official puzzle words to filter to
+ * @param bonusWords - Optional set of bonus words to mark
  */
 export function solveSquaredle(
   grid: string[][],
-  minWordLength: number = 2
+  minWordLength: number = 2,
+  officialWords?: Set<string>,
+  bonusWords?: Set<string>
 ): SolverResult {
   const startTime = performance.now();
 
@@ -153,89 +147,89 @@ export function solveSquaredle(
     }
   }
 
-  // DFS from each cell
+  // If official words provided, only find those
+  // Otherwise, find all words
+  const targetWords = officialWords || wordSet;
+  const targetPrefixes = officialWords ? buildPrefixSet(officialWords) : prefixSet;
+
+  // Start DFS from each cell
   for (let startRow = 0; startRow < rows; startRow++) {
     for (let startCol = 0; startCol < cols; startCol++) {
       const startChar = normalizedGrid[startRow][startCol];
       if (!startChar) continue;
 
-      if (!prefixSet.has(startChar) && !wordSet.has(startChar)) continue;
+      if (!targetPrefixes.has(startChar) && !targetWords.has(startChar)) continue;
 
-      const visited: boolean[][] = Array(rows)
-        .fill(null)
-        .map(() => Array(cols).fill(false));
-
+      const visited: boolean[][] = Array(rows).fill(null).map(() => Array(cols).fill(false));
       dfs(
-        startRow,
-        startCol,
-        startChar,
+        startRow, startCol, startChar,
         [{ row: startRow, col: startCol }],
-        visited,
-        normalizedGrid,
-        rows,
-        cols,
-        foundWords
+        visited, normalizedGrid, rows, cols,
+        foundWords, targetWords, targetPrefixes, bonusWords
       );
     }
   }
 
   // Convert to array and sort by score (highest first), then by length
   const words = Array.from(foundWords.values()).sort((a, b) => {
-    // Primary: sort by score (highest first)
     if (b.score !== a.score) return b.score - a.score;
-    // Secondary: sort by length (longer first)
     if (b.length !== a.length) return b.length - a.length;
-    // Tertiary: alphabetical
     return a.word.localeCompare(b.word);
   });
 
   // Group by length
   const byLength: Record<number, FoundWord[]> = {};
   for (const word of words) {
-    if (!byLength[word.length]) {
-      byLength[word.length] = [];
-    }
+    if (!byLength[word.length]) byLength[word.length] = [];
     byLength[word.length].push(word);
   }
-
-  const endTime = performance.now();
 
   return {
     words,
     totalWords: words.length,
     byLength,
-    executionTime: endTime - startTime
+    executionTime: performance.now() - startTime
   };
+}
+
+/**
+ * Build a prefix set from a word list
+ */
+function buildPrefixSet(words: Set<string>): Set<string> {
+  const prefixes = new Set<string>();
+  for (const word of words) {
+    for (let i = 1; i < word.length; i++) {
+      prefixes.add(word.substring(0, i));
+    }
+  }
+  return prefixes;
 }
 
 /**
  * DFS helper
  */
 function dfs(
-  row: number,
-  col: number,
-  currentPrefix: string,
+  row: number, col: number, currentPrefix: string,
   path: Array<{ row: number; col: number }>,
-  visited: boolean[][],
-  grid: string[][],
-  rows: number,
-  cols: number,
-  foundWords: Map<string, FoundWord>
+  visited: boolean[][], grid: string[][],
+  rows: number, cols: number,
+  foundWords: Map<string, FoundWord>,
+  targetWords: Set<string>,
+  targetPrefixes: Set<string>,
+  bonusWords?: Set<string>
 ): void {
   visited[row][col] = true;
 
   // Check if it's a valid word
-  if (wordSet!.has(currentPrefix)) {
-    const existingWord = foundWords.get(currentPrefix);
-    const score = wordScores!.get(currentPrefix) || 0;
-    
-    // Only add if not found or this path has higher score
-    if (!existingWord) {
+  if (targetWords.has(currentPrefix)) {
+    const score = wordScores!.get(currentPrefix) || calculateWordScore(currentPrefix);
+    if (!foundWords.has(currentPrefix)) {
       foundWords.set(currentPrefix, {
         word: currentPrefix,
         length: currentPrefix.length,
         score,
-        path: [...path]
+        path: [...path],
+        isBonus: bonusWords?.has(currentPrefix) || false
       });
     }
   }
@@ -252,12 +246,10 @@ function dfs(
     if (!nextChar) continue;
 
     const newPrefix = currentPrefix + nextChar;
-
-    // Check if prefix exists
-    if (!prefixSet!.has(newPrefix) && !wordSet!.has(newPrefix)) continue;
+    if (!targetPrefixes.has(newPrefix) && !targetWords.has(newPrefix)) continue;
 
     path.push({ row: newRow, col: newCol });
-    dfs(newRow, newCol, newPrefix, path, visited, grid, rows, cols, foundWords);
+    dfs(newRow, newCol, newPrefix, path, visited, grid, rows, cols, foundWords, targetWords, targetPrefixes, bonusWords);
     path.pop();
   }
 
@@ -265,25 +257,32 @@ function dfs(
 }
 
 /**
- * Validate grid
+ * Fetch today's puzzle from API
  */
+export async function fetchTodayPuzzle(express: boolean = false): Promise<OfficialPuzzle | null> {
+  try {
+    const url = `/api/solve?action=today${express ? '&type=express' : ''}`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.success && data.grid) {
+      return {
+        grid: data.grid,
+        words: data.words || data.validWords || [],
+        bonusWords: data.bonusWords || [],
+        date: data.date,
+        puzzleType: data.puzzleType || 'daily'
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to fetch today puzzle:', error);
+    return null;
+  }
+}
+
 export function validateGrid(grid: string[][]): { valid: boolean; error?: string } {
-  if (!grid || !Array.isArray(grid)) {
-    return { valid: false, error: 'Grid must be an array' };
-  }
-  if (grid.length === 0) {
-    return { valid: false, error: 'Grid cannot be empty' };
-  }
-
-  const cols = grid[0]?.length || 0;
-  for (let r = 0; r < grid.length; r++) {
-    if (!Array.isArray(grid[r])) {
-      return { valid: false, error: `Row ${r} must be an array` };
-    }
-    if (grid[r].length !== cols) {
-      return { valid: false, error: 'All rows must have the same number of columns' };
-    }
-  }
-
+  if (!grid || !Array.isArray(grid)) return { valid: false, error: 'Grid must be an array' };
+  if (grid.length === 0) return { valid: false, error: 'Grid cannot be empty' };
   return { valid: true };
 }

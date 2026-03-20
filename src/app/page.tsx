@@ -18,25 +18,20 @@ import {
   Clock,
   ExternalLink,
   Info,
-  Zap
+  Zap,
+  CheckCircle,
+  Star
 } from 'lucide-react'
 import { 
   loadDictionary, 
   solveSquaredle, 
   isDictionaryLoaded, 
   getDictionarySize,
+  fetchTodayPuzzle,
   FoundWord,
-  SolverResult
+  SolverResult,
+  OfficialPuzzle
 } from '@/lib/client-solver'
-
-interface TodayPuzzleResult {
-  success: boolean
-  grid: string[][]
-  source: string
-  date?: string
-  puzzleType?: string
-  message?: string
-}
 
 export default function SquaredleSolver() {
   // Initialize grid immediately with proper size
@@ -56,6 +51,9 @@ export default function SquaredleSolver() {
   const [highlightedWord, setHighlightedWord] = useState<FoundWord | null>(null)
   const [selectedLength, setSelectedLength] = useState<number | null>(null)
   const [windowWidth, setWindowWidth] = useState(1024)
+  const [isOfficialPuzzle, setIsOfficialPuzzle] = useState(false)
+  const [officialWordCount, setOfficialWordCount] = useState(0)
+  const [officialBonusCount, setOfficialBonusCount] = useState(0)
   const isFetchingRef = useRef(false)
 
   // Track window width
@@ -90,6 +88,7 @@ export default function SquaredleSolver() {
     setGrid(newGrid)
     setResult(null)
     setError(null)
+    setIsOfficialPuzzle(false)
   }
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -118,6 +117,7 @@ export default function SquaredleSolver() {
       setGridSize(maxSize)
       setGrid(newGrid)
       setResult(null)
+      setIsOfficialPuzzle(false)
     }
   }
 
@@ -136,7 +136,6 @@ export default function SquaredleSolver() {
     setIsSolving(true)
     setError(null)
 
-    // Use setTimeout to allow UI to update
     setTimeout(() => {
       try {
         const solveResult = solveSquaredle(grid, 2)
@@ -157,19 +156,18 @@ export default function SquaredleSolver() {
     setError(null)
 
     try {
-      const response = await fetch('/api/solve?action=today', {
-        method: 'GET',
-        cache: 'no-store'
-      })
-      const data: TodayPuzzleResult = await response.json()
-
-      if (data.success && data.grid) {
-        setGridSize(data.grid.length)
-        setGrid(data.grid)
+      const puzzleData = await fetchTodayPuzzle(false) // false = daily puzzle
+      
+      if (puzzleData && puzzleData.grid) {
+        setGridSize(puzzleData.grid.length)
+        setGrid(puzzleData.grid)
         setResult(null)
         setError(null)
+        setIsOfficialPuzzle(true)
+        setOfficialWordCount(puzzleData.words.length)
+        setOfficialBonusCount(puzzleData.bonusWords.length)
       } else {
-        throw new Error(data.message || 'Failed to get today\'s puzzle')
+        throw new Error('Failed to get today\'s puzzle')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load today\'s puzzle')
@@ -179,10 +177,50 @@ export default function SquaredleSolver() {
     }
   }, [isLoadingToday])
 
+  const handleSolveOfficial = useCallback(async () => {
+    if (!isDictionaryLoaded()) {
+      setError('Dictionary is still loading...')
+      return
+    }
+
+    const hasLetters = grid.some(row => row.some(cell => cell.trim() !== ''))
+    if (!hasLetters) {
+      setError('Please enter some letters in the grid')
+      return
+    }
+
+    setIsSolving(true)
+    setError(null)
+
+    try {
+      // Fetch official words
+      const puzzleData = await fetchTodayPuzzle(false)
+      
+      if (puzzleData) {
+        const officialWords = new Set([...puzzleData.words, ...puzzleData.bonusWords])
+        const bonusWords = new Set(puzzleData.bonusWords)
+        
+        const solveResult = solveSquaredle(grid, 2, officialWords, bonusWords)
+        setResult(solveResult)
+        setSelectedLength(null)
+      } else {
+        // Fallback to regular solve
+        const solveResult = solveSquaredle(grid, 2)
+        setResult(solveResult)
+        setSelectedLength(null)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to solve puzzle')
+    } finally {
+      setIsSolving(false)
+    }
+  }, [grid])
+
   const handleClearGrid = () => {
     setGrid(createEmptyGrid(gridSize))
     setResult(null)
     setError(null)
+    setIsOfficialPuzzle(false)
   }
 
   const isHighlighted = (row: number, col: number) => {
@@ -195,10 +233,8 @@ export default function SquaredleSolver() {
     return highlightedWord.path.findIndex(p => p.row === row && p.col === col)
   }
 
-  // Get lengths sorted from highest to lowest
   const allLengths = result ? Object.keys(result.byLength).map(Number).sort((a, b) => b - a) : []
 
-  // Calculate grid cell size
   const getCellSize = () => {
     if (windowWidth < 400) return 36
     if (windowWidth < 640) return 42
@@ -212,7 +248,6 @@ export default function SquaredleSolver() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 shadow-sm">
         <div className="max-w-6xl mx-auto px-3 py-3">
           <div className="flex items-center justify-between">
@@ -220,9 +255,7 @@ export default function SquaredleSolver() {
               <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-red-700 rounded-lg flex items-center justify-center flex-shrink-0">
                 <Grid3X3 className="w-5 h-5 text-white" />
               </div>
-              <div>
-                <h1 className="text-lg font-bold text-slate-900">Squaredle Solver</h1>
-              </div>
+              <h1 className="text-lg font-bold text-slate-900">Squaredle Solver</h1>
             </div>
             <div className="flex items-center gap-3">
               {!isLoadingDict && (
@@ -231,14 +264,9 @@ export default function SquaredleSolver() {
                   {dictSize.toLocaleString()} words
                 </Badge>
               )}
-              <a 
-                href="https://squaredle.app" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-xs sm:text-sm text-red-600 hover:text-red-700 flex items-center gap-1"
-              >
-                Play Squaredle
-                <ExternalLink className="w-3 h-3" />
+              <a href="https://squaredle.app" target="_blank" rel="noopener noreferrer"
+                className="text-xs sm:text-sm text-red-600 hover:text-red-700 flex items-center gap-1">
+                Play Squaredle <ExternalLink className="w-3 h-3" />
               </a>
             </div>
           </div>
@@ -246,7 +274,6 @@ export default function SquaredleSolver() {
       </header>
 
       <main className="max-w-6xl mx-auto px-3 py-4">
-        {/* Dictionary loading indicator */}
         {isLoadingDict && (
           <Card className="mb-4 border-amber-200 bg-amber-50">
             <CardContent className="py-3 px-4">
@@ -262,8 +289,25 @@ export default function SquaredleSolver() {
           </Card>
         )}
 
+        {/* Official puzzle indicator */}
+        {isOfficialPuzzle && !result && (
+          <Card className="mb-4 border-green-200 bg-green-50">
+            <CardContent className="py-3 px-4">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+                <div>
+                  <p className="text-sm font-medium text-green-800">Today's Official Puzzle Loaded</p>
+                  <p className="text-xs text-green-600">
+                    {officialWordCount} words + {officialBonusCount} bonus words • 
+                    Click "Solve Official" to find only valid Squaredle words
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid lg:grid-cols-5 gap-4">
-          {/* Left Panel - Grid Input */}
           <div className="lg:col-span-2 space-y-3">
             <Card className="border-slate-200 shadow-sm">
               <CardHeader className="pb-2 pt-3 px-3">
@@ -272,38 +316,26 @@ export default function SquaredleSolver() {
                     <Sparkles className="w-4 h-4 text-amber-500" />
                     Puzzle Grid
                   </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={gridSize}
-                      onChange={(e) => {
-                        const newSize = Number(e.target.value)
-                        setGridSize(newSize)
-                        setGrid(createEmptyGrid(newSize))
-                        setResult(null)
-                        setError(null)
-                      }}
-                      className="text-xs border border-slate-300 rounded px-1.5 py-1 bg-white"
-                    >
-                      {[3, 4, 5, 6, 7, 8].map(size => (
-                        <option key={size} value={size}>{size}×{size}</option>
-                      ))}
-                    </select>
-                  </div>
+                  <select value={gridSize}
+                    onChange={(e) => {
+                      const newSize = Number(e.target.value)
+                      setGridSize(newSize)
+                      setGrid(createEmptyGrid(newSize))
+                      setResult(null)
+                      setError(null)
+                      setIsOfficialPuzzle(false)
+                    }}
+                    className="text-xs border border-slate-300 rounded px-1.5 py-1 bg-white">
+                    {[3, 4, 5, 6, 7, 8].map(size => (
+                      <option key={size} value={size}>{size}×{size}</option>
+                    ))}
+                  </select>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 px-3 pb-3">
-                {/* Grid */}
-                <div 
-                  className="bg-gradient-to-br from-red-600 to-red-800 p-2 sm:p-2.5 rounded-xl shadow-lg mx-auto"
-                  style={{ width: gridWidth, maxWidth: '100%' }}
-                  onPaste={handlePaste}
-                >
-                  <div 
-                    className="grid gap-1"
-                    style={{ 
-                      gridTemplateColumns: `repeat(${gridSize}, minmax(0, 1fr))`,
-                    }}
-                  >
+                <div className="bg-gradient-to-br from-red-600 to-red-800 p-2 sm:p-2.5 rounded-xl shadow-lg mx-auto"
+                  style={{ width: gridWidth, maxWidth: '100%' }} onPaste={handlePaste}>
+                  <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${gridSize}, minmax(0, 1fr))` }}>
                     {grid.map((row, rowIdx) =>
                       row.map((cell, colIdx) => {
                         const highlighted = isHighlighted(rowIdx, colIdx)
@@ -311,37 +343,18 @@ export default function SquaredleSolver() {
                         const isLast = highlightedWord && pathIdx === highlightedWord.path.length - 1
                         
                         return (
-                          <div
-                            key={`${rowIdx}-${colIdx}`}
-                            className="relative"
-                            style={{ aspectRatio: '1' }}
-                          >
-                            <Input
-                              type="text"
-                              value={cell}
+                          <div key={`${rowIdx}-${colIdx}`} className="relative" style={{ aspectRatio: '1' }}>
+                            <Input type="text" value={cell}
                               onChange={(e) => handleCellChange(rowIdx, colIdx, e.target.value)}
-                              className={`
-                                w-full h-full text-center font-bold uppercase
-                                transition-all duration-150 rounded border-2
-                                ${highlighted
-                                  ? `bg-yellow-400 text-slate-900 border-yellow-500 z-10 ${isLast ? 'scale-110' : 'scale-105'}`
-                                  : 'bg-white text-slate-800 border-slate-300 hover:border-red-400 focus:border-red-500'
-                                }
-                              `}
-                              style={{ 
-                                fontSize: `${Math.max(14, cellSize * 0.4)}px`,
-                                padding: '0',
-                                aspectRatio: '1'
-                              }}
-                              maxLength={1}
-                            />
+                              className={`w-full h-full text-center font-bold uppercase transition-all duration-150 rounded border-2
+                                ${highlighted ? `bg-yellow-400 text-slate-900 border-yellow-500 z-10 ${isLast ? 'scale-110' : 'scale-105'}`
+                                  : 'bg-white text-slate-800 border-slate-300 hover:border-red-400 focus:border-red-500'}`}
+                              style={{ fontSize: `${Math.max(14, cellSize * 0.4)}px`, padding: '0', aspectRatio: '1' }}
+                              maxLength={1} />
                             {highlighted && (
-                              <div className={`
-                                absolute -top-4 left-1/2 -translate-x-1/2 
+                              <div className={`absolute -top-4 left-1/2 -translate-x-1/2 
                                 ${isLast ? 'bg-red-500' : 'bg-yellow-500'} 
-                                text-slate-900 text-[9px] font-bold rounded-full 
-                                w-3.5 h-3.5 flex items-center justify-center
-                              `}>
+                                text-slate-900 text-[9px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center`}>
                                 {pathIdx + 1}
                               </div>
                             )}
@@ -352,66 +365,42 @@ export default function SquaredleSolver() {
                   </div>
                 </div>
 
-                {/* Action Buttons */}
                 <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    onClick={handleGetToday}
-                    disabled={isLoadingToday || isSolving}
-                    variant="outline"
-                    size="sm"
-                    className="border-green-600 text-green-700 hover:bg-green-50"
-                  >
-                    {isLoadingToday ? (
-                      <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                    ) : (
-                      <Download className="w-4 h-4 mr-1.5" />
-                    )}
+                  <Button type="button" onClick={handleGetToday} disabled={isLoadingToday || isSolving}
+                    variant="outline" size="sm" className="border-green-600 text-green-700 hover:bg-green-50">
+                    {isLoadingToday ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Download className="w-4 h-4 mr-1.5" />}
                     Today's Puzzle
                   </Button>
-                  <Button
-                    type="button"
-                    onClick={handleSolve}
-                    disabled={isSolving || isLoadingToday || isLoadingDict}
-                    size="sm"
-                    className="bg-red-600 hover:bg-red-700 text-white"
-                  >
-                    {isSolving ? (
-                      <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                    ) : (
-                      <Play className="w-4 h-4 mr-1.5" />
-                    )}
-                    Solve
-                  </Button>
+                  {isOfficialPuzzle ? (
+                    <Button type="button" onClick={handleSolveOfficial} disabled={isSolving || isLoadingToday || isLoadingDict}
+                      size="sm" className="bg-green-600 hover:bg-green-700 text-white">
+                      {isSolving ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1.5" />}
+                      Solve Official
+                    </Button>
+                  ) : (
+                    <Button type="button" onClick={handleSolve} disabled={isSolving || isLoadingToday || isLoadingDict}
+                      size="sm" className="bg-red-600 hover:bg-red-700 text-white">
+                      {isSolving ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Play className="w-4 h-4 mr-1.5" />}
+                      Solve All
+                    </Button>
+                  )}
                 </div>
-                <Button
-                  type="button"
-                  onClick={handleClearGrid}
-                  variant="ghost"
-                  className="w-full text-slate-600"
-                  size="sm"
-                >
-                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-                  Clear Grid
+                <Button type="button" onClick={handleClearGrid} variant="ghost" className="w-full text-slate-600" size="sm">
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Clear Grid
                 </Button>
 
-                {/* Error */}
                 {error && (
-                  <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs">
-                    {error}
-                  </div>
+                  <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs">{error}</div>
                 )}
 
-                {/* Tips */}
                 <div className="text-xs text-slate-500 space-y-0.5 bg-slate-50 p-2 rounded">
                   <p>💡 Click cells and type letters, or paste from clipboard</p>
-                  <p>🏆 Words sorted by rarity (rare letters first)</p>
+                  <p>🏆 <strong>Solve Official</strong> = Squaredle words only | <strong>Solve All</strong> = Full dictionary</p>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Right Panel - Results */}
           <div className="lg:col-span-3">
             {result ? (
               <Card className="border-slate-200 shadow-sm h-full">
@@ -419,50 +408,34 @@ export default function SquaredleSolver() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <CardTitle className="text-base flex items-center gap-2">
-                        <Search className="w-4 h-4 text-green-600" />
-                        Found Words
+                        <Search className="w-4 h-4 text-green-600" /> Found Words
                       </CardTitle>
-                      <Badge variant="secondary" className="text-xs">
-                        {result.totalWords}
-                      </Badge>
+                      <Badge variant="secondary" className="text-xs">{result.totalWords}</Badge>
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                      <Clock className="w-3 h-3" />
-                      {result.executionTime.toFixed(0)}ms
+                      <Clock className="w-3 h-3" /> {result.executionTime.toFixed(0)}ms
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="px-3 pb-3">
-                  {/* Length filter tabs */}
                   <div className="flex flex-wrap gap-1 mb-3 pb-2 border-b border-slate-200">
-                    <Button
-                      type="button"
-                      onClick={() => setSelectedLength(null)}
-                      variant={selectedLength === null ? "default" : "outline"}
-                      size="sm"
-                      className={`h-7 text-xs px-2 ${selectedLength === null ? "bg-red-600 hover:bg-red-700" : ""}`}
-                    >
+                    <Button type="button" onClick={() => setSelectedLength(null)}
+                      variant={selectedLength === null ? "default" : "outline"} size="sm"
+                      className={`h-7 text-xs px-2 ${selectedLength === null ? "bg-red-600 hover:bg-red-700" : ""}`}>
                       All ({result.totalWords})
                     </Button>
                     {allLengths.map(length => (
-                      <Button
-                        key={length}
-                        type="button"
-                        onClick={() => setSelectedLength(length)}
-                        variant={selectedLength === length ? "default" : "outline"}
-                        size="sm"
-                        className={`h-7 text-xs px-2 ${selectedLength === length ? "bg-red-600 hover:bg-red-700" : ""}`}
-                      >
+                      <Button key={length} type="button" onClick={() => setSelectedLength(length)}
+                        variant={selectedLength === length ? "default" : "outline"} size="sm"
+                        className={`h-7 text-xs px-2 ${selectedLength === length ? "bg-red-600 hover:bg-red-700" : ""}`}>
                         {length}L ({result.byLength[length]?.length || 0})
                       </Button>
                     ))}
                   </div>
 
-                  {/* Words display */}
                   <ScrollArea className="h-[280px] sm:h-[320px] lg:h-[380px]">
                     <div className="space-y-3">
                       {selectedLength === null ? (
-                        // Show all words grouped by length (highest first)
                         allLengths.map(length => (
                           <div key={length}>
                             <h3 className="text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
@@ -471,45 +444,36 @@ export default function SquaredleSolver() {
                             </h3>
                             <div className="flex flex-wrap gap-1">
                               {result.byLength[length]?.map((word, idx) => (
-                                <Badge
-                                  key={`${length}-${idx}`}
-                                  variant="outline"
-                                  className={`
-                                    cursor-pointer py-1 px-2 text-xs font-mono
-                                    transition-all duration-150 border
+                                <Badge key={`${length}-${idx}`} variant="outline"
+                                  className={`cursor-pointer py-1 px-2 text-xs font-mono transition-all duration-150 border
                                     ${highlightedWord?.word === word.word
                                       ? 'bg-yellow-400 text-slate-900 border-yellow-500 shadow-sm'
-                                      : 'bg-white text-slate-700 border-slate-300 hover:border-red-400 hover:bg-red-50'
-                                    }
-                                  `}
+                                      : word.isBonus 
+                                        ? 'bg-amber-50 text-amber-800 border-amber-300 hover:border-amber-400'
+                                        : 'bg-white text-slate-700 border-slate-300 hover:border-red-400 hover:bg-red-50'}`}
                                   onMouseEnter={() => setHighlightedWord(word)}
-                                  onMouseLeave={() => setHighlightedWord(null)}
-                                >
+                                  onMouseLeave={() => setHighlightedWord(null)}>
                                   {word.word}
+                                  {word.isBonus && <Star className="w-3 h-3 ml-1 inline" />}
                                 </Badge>
                               ))}
                             </div>
                           </div>
                         ))
                       ) : (
-                        // Show only selected length
                         <div className="flex flex-wrap gap-1">
                           {result.byLength[selectedLength]?.map((word, idx) => (
-                            <Badge
-                              key={idx}
-                              variant="outline"
-                              className={`
-                                cursor-pointer py-1 px-2 text-xs font-mono
-                                transition-all duration-150 border
+                            <Badge key={idx} variant="outline"
+                              className={`cursor-pointer py-1 px-2 text-xs font-mono transition-all duration-150 border
                                 ${highlightedWord?.word === word.word
                                   ? 'bg-yellow-400 text-slate-900 border-yellow-500 shadow-sm'
-                                  : 'bg-white text-slate-700 border-slate-300 hover:border-red-400 hover:bg-red-50'
-                                }
-                              `}
+                                  : word.isBonus 
+                                    ? 'bg-amber-50 text-amber-800 border-amber-300 hover:border-amber-400'
+                                    : 'bg-white text-slate-700 border-slate-300 hover:border-red-400 hover:bg-red-50'}`}
                               onMouseEnter={() => setHighlightedWord(word)}
-                              onMouseLeave={() => setHighlightedWord(null)}
-                            >
+                              onMouseLeave={() => setHighlightedWord(null)}>
                               {word.word}
+                              {word.isBonus && <Star className="w-3 h-3 ml-1 inline" />}
                             </Badge>
                           ))}
                         </div>
@@ -518,8 +482,10 @@ export default function SquaredleSolver() {
                   </ScrollArea>
 
                   <div className="text-xs text-slate-500 flex items-center gap-1 mt-2 pt-2 border-t border-slate-200">
-                    <Info className="w-3 h-3" />
-                    Hover over words to highlight their path on the grid
+                    <Info className="w-3 h-3" /> Hover to highlight path
+                    {result.words.some(w => w.isBonus) && (
+                      <><Star className="w-3 h-3 mx-1 text-amber-500" /> = Bonus word</>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -530,9 +496,7 @@ export default function SquaredleSolver() {
                     <Grid3X3 className="w-6 h-6 text-slate-400" />
                   </div>
                   <h3 className="text-base font-semibold text-slate-700 mb-1">No Results Yet</h3>
-                  <p className="text-slate-500 text-xs max-w-xs mx-auto">
-                    Enter letters and click "Solve" to find all words
-                  </p>
+                  <p className="text-slate-500 text-xs max-w-xs mx-auto">Enter letters and click "Solve" to find all words</p>
                 </CardContent>
               </Card>
             )}
@@ -540,10 +504,9 @@ export default function SquaredleSolver() {
         </div>
       </main>
 
-      {/* Footer */}
       <footer className="border-t border-slate-200 bg-white mt-6">
         <div className="max-w-6xl mx-auto px-3 py-3 text-center text-xs text-slate-500">
-          <p>Squaredle Solver • {isLoadingDict ? 'Loading dictionary...' : `${dictSize.toLocaleString()} words loaded`} • Find words in any letter grid puzzle</p>
+          <p>Squaredle Solver • {isLoadingDict ? 'Loading dictionary...' : `${dictSize.toLocaleString()} words loaded`}</p>
         </div>
       </footer>
     </div>
