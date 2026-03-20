@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://medium.com/@ashalabi13/solving-boggle-using-depth-first-searches-and-prefix-trees-9c3faa89ea99",
+    "name": "Solving Boggle Using Depth First Searches and Prefix Trees",
+    "snippet": "A plastic grid is used to generate a matrix of random letters. It is the players' role to find valid words in adjacent letters in a given amount of time.",
+    "host_name": "medium.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.geeksforgeeks.org/dsa/boggle-using-trie",
+    "name": "Boggle using Trie",
+    "snippet": "2. After that we have pick only those character in boggle[][] which ...",
+    "host_name": "www.geeksforgeeks.org",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://stackoverflow.com/questions/34347758/why-does-dfs-work-when-trying-to-find-all-valid-words-in-a-boggle-board",
+    "name": "Why does DFS work when trying to find all valid words in a",
+    "snippet": "DFS (and BFS, too), will eventually discover every path through the graph, so you can compare the list of paths so generated with a dictionary ...",
+    "host_name": "stackoverflow.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/bilash/boggle-solver",
+    "name": "bilash/boggle-solver: A trie + dynamic programming",
+    "snippet": "The dictionary is stored in a trie (prefix tree). A DFS like traversal is done on the dictionary to find the words . For each word , we use a dynamic ...",
+    "host_name": "github.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://leetcode.com/discuss/interview-question/1036815/amazon-sde2-onsite-implement-boggle-game-trie-dfs-scalability-follow-up-question",
+    "name": "Amazon | SDE2 onsite | implement Boggle Game | Trie + DFS",
+    "snippet": "26 Jan 2021 — Write a program to implement Boggle Game. You are given a 4x4 matrix of letters and a dictionary, find all the valid words in the matrix .",
+    "host_name": "leetcode.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "http://exceptional-code.blogspot.com/2012/02/solving-boggle-game-recursion-prefix.html",
+    "name": "Solving the Boggle Game - Recursion, Prefix Tree, and",
+    "snippet": "10 Feb 2012 — I had to use recursion, sorting, searching, prefix trees (also knows as trie's ), and dynamic programming as I was improving the run time of the program.",
+    "host_name": "exceptional-code.blogspot.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.facebook.com/groups/infotechit/posts/5811166432282139",
+    "name": "Writing a Boggle solver in C++ using DFS and backtracking",
+    "snippet": "Uh today we're going to talk about solving the boggle traversal problem using DFS which is the depth first search algorithm in tandem with ...",
+    "host_name": "www.facebook.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.geeksforgeeks.org/dsa/boggle-find-possible-words-board-characters",
+    "name": "Boggle (Find all possible words in a board of characters)",
+    "snippet": "23 Jul 2025 — During DFS search , it is crucial to maintain a record of visited cells, ensuring that each cell is used only once in forming any given word .\nThe idea is to treat every cell in the matrix as a potential starting point and generate all words that begin with the cell using depth-first search. For every generated word, check if it is present in the given set of words.",
+    "host_name": "www.geeksforgeeks.org",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.algoviz.xyz/viz/boggle",
+    "name": "Boggle Solver — Find Words in a Letter Grid - algoviz",
+    "snippet": "Boggle solving combines several important algorithmic techniques: DFS with backtracking , trie-based prefix matching, grid traversal with visited-state tracking, ...",
+    "host_name": "www.algoviz.xyz",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.algotree.org/algorithms/trie/trie_dfs_boggle",
+    "name": "Solving Boggle Using Trie - Algotree",
+    "snippet": "DFS is used to form all possible strings in the Boggle grid. Trie is used for searching if the string formed using DFS is present in the list of words inserted into it. The idea behind this algorithm is to create a Trie with the list of words that we want to search in the Boggle.",
+    "host_name": "www.algotree.org",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]
